@@ -1,0 +1,45 @@
+{
+    "id": "token-action-hud-oh",
+    "title": "Token Action HUD Outer Heaven",
+    "description": "Provide support for the Outerheaven game system with Token Action HUD Core",
+    "version": "0.1",
+    "compatibility": {
+        "minimum": 10,
+        "verified": 10
+    },
+    "authors": [
+        {
+            "name": "Mantis"
+        }
+    ],
+    "relationships": {
+        "systems": [
+            {
+                "id": "outerheaven",
+                "type": "system",
+                "compatibility": [
+                    {
+                        "minimum": "0.01",
+                        "verified": "0.01"
+                    }
+                ]
+            }
+        ],
+        "requires": [
+            {
+                "id": "token-action-hud-core",
+                "type": "module",
+                "compatibility": [
+                    {
+                        "minimum": "1.2",
+                        "maximum": "1.2",
+                        "verified": "1.2"
+                    }
+                ]
+            }
+        ]
+    },
+    "esmodules": [
+        "scripts/module.js"
+    ]
+}
