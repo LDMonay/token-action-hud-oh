@@ -1,5 +1,5 @@
 const MODULE_ID = 'token-action-hud-oh';
-const REQUIRED_CORE_MODULE_VERSION = '1.5';
+const REQUIRED_CORE_MODULE_VERSION = '2.0';
 
 Hooks.once('tokenActionHudCoreApiReady', async (coreModule) => {
     /* ACTIONS */

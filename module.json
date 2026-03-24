@@ -2,10 +2,10 @@
     "id": "token-action-hud-oh",
     "title": "Token Action HUD Outer Heaven",
     "description": "Provide support for the Outerheaven game system with Token Action HUD Core",
-    "version": "0.2",
+    "version": "0.3",
     "compatibility": {
-        "minimum": "11",
-        "verified": "11"
+        "minimum": "12",
+        "verified": "13"
     },
     "authors": [
         {
@@ -31,8 +31,8 @@
                 "type": "module",
                 "compatibility": [
                     {
-                        "minimum": "1.5.0",
-                        "verified": "1.5.0"
+                        "minimum": "2.0.0",
+                        "verified": "2.0.0"
                     }
                 ]
             }
