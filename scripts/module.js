@@ -30,7 +30,6 @@ Hooks.once('tokenActionHudCoreApiReady', async (coreModule) => {
             this._buildStats(actor);
             this._buildResources(actor);
             this._buildAttacks(actor);
-            this._buildReloads(actor);
             this._buildDefenses(actor);
             this._buildEquipment(actor);
             this._buildAbilities(actor);
@@ -139,24 +138,30 @@ Hooks.once('tokenActionHudCoreApiReady', async (coreModule) => {
         }
 
         _buildAttacks (actor) {
-            const actions = actor.items
-                .filter(item => item.type === 'weapon')
-                .map(item => this._itemAction(item, 'use'));
-            this.addActions(actions, { id: 'weapons', type: 'system' });
+            this._buildItemRows(actor, 'weapon', 'weapons');
         }
 
         _buildEquipment (actor) {
-            const actions = actor.items
-                .filter(item => item.type === 'equipment')
-                .map(item => this._itemAction(item, 'use'));
-            this.addActions(actions, { id: 'equipmentList', type: 'system' });
+            this._buildItemRows(actor, 'equipment', 'equipmentList');
         }
 
         _buildAbilities (actor) {
-            const actions = actor.items
-                .filter(item => item.type === 'ability')
-                .map(item => this._itemAction(item, 'use'));
-            this.addActions(actions, { id: 'abilityList', type: 'system' });
+            this._buildItemRows(actor, 'ability', 'abilityList');
+        }
+
+        /**
+         * Give each item its own subgroup (row) under `parentId`, holding its use/reload/wield buttons.
+         * A subgroup is a separate flex container, so the extra buttons never wrap into the next item.
+         */
+        _buildItemRows (actor, itemType, parentId) {
+            for (const item of actor.items.filter(i => i.type === itemType)) {
+                const rowId = `${item.id}-row`;
+                this.addGroup(
+                    { id: rowId, type: 'system', settings: { showTitle: false } },
+                    { id: parentId, type: 'system' }
+                );
+                this.addActions(this._itemActions(item), { id: rowId, type: 'system' });
+            }
         }
 
         _buildSkills (actor) {
@@ -169,20 +174,6 @@ Hooks.once('tokenActionHudCoreApiReady', async (coreModule) => {
                     img: getImage(item)
                 }));
             this.addActions(actions, { id: 'skillList', type: 'system' });
-        }
-
-        /** Reloadable items (weapons/equipment/abilities with spent capacity). */
-        _buildReloads (actor) {
-            const actions = actor.items
-                .filter(item => item.canReload)
-                .map(item => ({
-                    id: item.id,
-                    name: item.name,
-                    encodedValue: ['reload', item.id].join(DELIMITER),
-                    img: getImage(item),
-                    info1: { text: `${item.system.capacity.value}/${item.system.capacity.max}`, title: 'Ammo' }
-                }));
-            this.addActions(actions, { id: 'reloads', type: 'system' });
         }
 
         /** Stance active-effects — click to select as the unit's active stance, click again to clear. */
@@ -203,21 +194,94 @@ Hooks.once('tokenActionHudCoreApiReady', async (coreModule) => {
             this.addActions(actions, { id: 'stanceList', type: 'system' });
         }
 
-        /** Standard and token active-effects — click to toggle enabled/disabled. */
+        /**
+         * Standard and token active-effects. The name button toggles enabled/disabled and shows the effect
+         * level as a badge. Stackable token effects also get a `-1 / amount / +1` row that adjusts the
+         * effect's Amount (stored in duration.value); dropping to 0 deletes the effect.
+         */
         _buildBuffs (actor) {
-            const actions = [...actor.effects]
-                .filter(effect => effect.type === 'standard' || effect.type === 'token')
-                .map(effect => {
-                    const effectName = effect.name ?? effect.label;
-                    return {
-                        id: effect.id,
-                        name: effect.disabled ? effectName : effectName + ' [ON]',
-                        encodedValue: ['buff', effect.id].join(DELIMITER),
-                        img: getImage(effect),
-                        cssClass: effect.disabled ? '' : 'active toggle'
-                    };
+            for (const effect of actor.effects) {
+                if (effect.type !== 'standard' && effect.type !== 'token') continue;
+
+                // One subgroup (row) per buff so its stepper stays on the buff's own line.
+                const rowId = `${effect.id}-row`;
+                this.addGroup(
+                    { id: rowId, type: 'system', settings: { showTitle: false } },
+                    { id: 'buffList', type: 'system' }
+                );
+
+                const effectName = effect.name ?? effect.label;
+                // Active state is shown by the outline (.active), so no "[ON]" text is needed.
+                // Level and (for token effects) the amount both live on the name badge.
+                const nameAction = {
+                    id: effect.id,
+                    name: effectName,
+                    encodedValue: ['buff', effect.id].join(DELIMITER),
+                    img: getImage(effect),
+                    cssClass: effect.disabled ? '' : 'active toggle',
+                    info1: { text: `Lv ${effect.system.level}`, title: 'Level' }
+                };
+                if (effect.type === 'token') {
+                    nameAction.info2 = { text: `×${effect.system.amount}`, title: 'Amount' };
+                }
+                const actions = [nameAction];
+
+                if (effect.type === 'token') {
+                    actions.push(
+                        {
+                            id: `${effect.id}-dec`,
+                            name: '−1',
+                            encodedValue: ['buffDec', effect.id].join(DELIMITER),
+                            cssClass: 'toggle'
+                        },
+                        {
+                            id: `${effect.id}-inc`,
+                            name: '+1',
+                            encodedValue: ['buffInc', effect.id].join(DELIMITER),
+                            cssClass: 'toggle'
+                        }
+                    );
+                }
+
+                this.addActions(actions, { id: rowId, type: 'system' });
+            }
+        }
+
+        /**
+         * Build the row of buttons for a weapon/equipment/ability: the item itself (attack/use), an inline
+         * Reload button when it has spent capacity, and a Wield/Unwield toggle for its readied state. Reload
+         * and wield sit next to the item rather than in a separate section.
+         * @param {Item} item
+         * @param {string} useType - The encoded action type for the item's primary button (roll-handler key).
+         * @returns {object[]}
+         */
+        _itemActions (item, useType = 'use') {
+            const actions = [this._itemAction(item, useType)];
+
+            // Show a Reload button whenever the item has capacity at all, so it doesn't pop in/out as ammo
+            // is spent. It's greyed (disabled) while the item is full and can't currently reload.
+            if (item.system.capacity?.max > 0) {
+                actions.push({
+                    id: `${item.id}-reload`,
+                    name: 'Reload',
+                    encodedValue: ['reload', item.id].join(DELIMITER),
+                    icon1: '<i class="fa-solid fa-arrows-rotate"></i>',
+                    cssClass: item.canReload ? '' : 'disabled'
                 });
-            this.addActions(actions, { id: 'buffList', type: 'system' });
+            }
+
+            // weapon/equipment/ability carry a `ready` field; skills do not. Icon-only toggle, lit when wielded.
+            if (item.system.ready !== undefined) {
+                actions.push({
+                    id: `${item.id}-wield`,
+                    name: 'Wield',
+                    encodedValue: ['wield', item.id].join(DELIMITER),
+                    icon1: '<i class="fa-solid fa-hand-fist"></i>',
+                    cssClass: item.system.ready ? 'active toggle' : 'toggle'
+                });
+            }
+
+            return actions;
         }
 
         /**
@@ -264,7 +328,13 @@ Hooks.once('tokenActionHudCoreApiReady', async (coreModule) => {
                 }
                 case 'reload': {
                     const item = actor.items.get(actionId);
-                    await item?.reload();
+                    if (item?.canReload) await item.reload();
+                    break;
+                }
+                case 'wield': {
+                    // Toggle the item's readied (wielded) state.
+                    const item = actor.items.get(actionId);
+                    if (item) await item.update({ 'system.ready': !item.system.ready });
                     break;
                 }
                 case 'showDefense':
@@ -281,9 +351,41 @@ Hooks.once('tokenActionHudCoreApiReady', async (coreModule) => {
                 case 'buff': {
                     const effect = actor.effects.get(actionId);
                     await effect?.update({ disabled: !effect.disabled });
+                    this._refreshHud();
+                    break;
+                }
+                case 'buffInc': {
+                    // Amount is stored in the effect's duration.value.
+                    const effect = actor.effects.get(actionId);
+                    if (effect) {
+                        await effect.update({ 'duration.value': effect.system.amount + 1, 'duration.units': 'rounds' });
+                        this._refreshHud();
+                    }
+                    break;
+                }
+                case 'buffDec': {
+                    const effect = actor.effects.get(actionId);
+                    if (effect) {
+                        const next = effect.system.amount - 1;
+                        if (next <= 0) {
+                            await effect.delete(); // deleteActiveEffect is auto-tracked, no manual refresh needed
+                        } else {
+                            await effect.update({ 'duration.value': next, 'duration.units': 'rounds' });
+                            this._refreshHud();
+                        }
+                    }
                     break;
                 }
             }
+        }
+
+        /**
+         * Force the HUD to rebuild. Needed after ActiveEffect *updates* (e.g. changing an effect's amount or
+         * disabled state) because Token Action HUD Core only auto-refreshes on effect create/delete, not
+         * update — so without this the buttons keep showing stale values.
+         */
+        _refreshHud () {
+            Hooks.callAll('forceUpdateTokenActionHud');
         }
     };
 
@@ -343,7 +445,6 @@ Hooks.once('tokenActionHudCoreApiReady', async (coreModule) => {
                         ]
                     },
                     solo('attacks', 'Attacks', 'weapons'),
-                    solo('reload', 'Reload', 'reloads'),
                     {
                         nestId: 'defenses',
                         id: 'defenses',
@@ -364,7 +465,6 @@ Hooks.once('tokenActionHudCoreApiReady', async (coreModule) => {
                     { id: 'combatStats',   name: 'Combat',        type: 'system' },
                     { id: 'resources',     name: 'Resources',     type: 'system' },
                     { id: 'weapons',       name: 'Attacks',       type: 'system' },
-                    { id: 'reloads',       name: 'Reload',        type: 'system' },
                     { id: 'defenseStats',  name: 'Defense Stats', type: 'system' },
                     { id: 'defenseItems',  name: 'Armor',         type: 'system' },
                     { id: 'equipmentList', name: 'Equipment',     type: 'system' },
