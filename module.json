@@ -1,11 +1,11 @@
 {
-    "id": "token-action-hud-oh",
-    "title": "Token Action HUD Outer Heaven",
-    "description": "Provide support for the Outerheaven game system with Token Action HUD Core",
-    "version": "0.3",
+    "id": "token-action-hud-escalation",
+    "title": "Token Action HUD Escalation",
+    "description": "Escalation (Locked & Loaded) system support for Token Action HUD Core.",
+    "version": "1.0.0",
     "compatibility": {
-        "minimum": "12",
-        "verified": "13"
+        "minimum": "14",
+        "verified": "14"
     },
     "authors": [
         {
@@ -15,26 +15,22 @@
     "relationships": {
         "systems": [
             {
-                "id": "outerheaven",
+                "id": "escalation",
                 "type": "system",
-                "compatibility": [
-                    {
-                        "minimum": "0.01",
-                        "verified": "0.01"
-                    }
-                ]
+                "compatibility": {
+                    "minimum": "0.89",
+                    "verified": "0.89"
+                }
             }
         ],
         "requires": [
             {
                 "id": "token-action-hud-core",
                 "type": "module",
-                "compatibility": [
-                    {
-                        "minimum": "2.0.0",
-                        "verified": "2.0.0"
-                    }
-                ]
+                "compatibility": {
+                    "minimum": "2.1.0",
+                    "verified": "2.1.0"
+                }
             }
         ]
     },
