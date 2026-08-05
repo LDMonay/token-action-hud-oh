@@ -258,9 +258,10 @@ Hooks.once('tokenActionHudCoreApiReady', async (coreModule) => {
         _itemActions (item, useType = 'use') {
             const actions = [this._itemAction(item, useType)];
 
-            // Show a Reload button whenever the item has capacity at all, so it doesn't pop in/out as ammo
-            // is spent. It's greyed (disabled) while the item is full and can't currently reload.
-            if (item.system.capacity?.max > 0) {
+            // Show a Reload button whenever the item has a reloadable magazine, so it doesn't pop in/out as
+            // ammo is spent. It's greyed (disabled) while the item is full and can't currently reload.
+            // Restore-only ("initial uses") items are never reloadable, so they get no button at all.
+            if (item.system.capacity?.max > 0 && !item.system.capacity.restoreOnly) {
                 actions.push({
                     id: `${item.id}-reload`,
                     name: 'Reload',
@@ -298,8 +299,13 @@ Hooks.once('tokenActionHudCoreApiReady', async (coreModule) => {
                 encodedValue: [type, item.id].join(DELIMITER),
                 img: getImage(item)
             };
-            if (item.system.capacity?.max > 0) {
-                action.info1 = { text: `${item.system.capacity.value}/${item.system.capacity.max}`, title: 'Ammo' };
+            const capacity = item.system.capacity;
+            if (capacity?.max > 0) {
+                // A restore-only item's `max` is a starting charge that can't be topped up in play, so only
+                // the remaining uses are meaningful — showing "value/max" would imply a reloadable magazine.
+                action.info1 = capacity.restoreOnly
+                    ? { text: `${capacity.value}`, title: 'Uses' }
+                    : { text: `${capacity.value}/${capacity.max}`, title: 'Ammo' };
             }
             return action;
         }
