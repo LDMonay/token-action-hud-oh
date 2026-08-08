@@ -18,6 +18,69 @@ Hooks.once('tokenActionHudCoreApiReady', async (coreModule) => {
         return `${pool?.value ?? 0}/${pool.max}`;
     };
 
+    /**
+     * Whether an item carries a reloadable magazine. `capacity.max` means one of two things depending on the
+     * item's "initial uses" toggle (`capacity.restoreOnly`): a reload cap, or a starting charge that only a
+     * post-combat restore refills. Only the former can ever be reloaded — see ESCItem#canReload.
+     * @param {Item} item
+     * @returns {boolean}
+     */
+    const hasMagazine = (item) => item.system.capacity?.max > 0 && !item.system.capacity.restoreOnly;
+
+    /**
+     * Whether to offer a Wield toggle for an item. The held state is `system.handling` (called "Ready" until
+     * the system renamed it). Weapons carry it alone and are always wieldable; equipment and armor pair it
+     * with `requireHandling`, which marks the ones whose benefits only count while actually in hand — the
+     * rest are worn or carried passively and have nothing to toggle. Abilities and skills have no such state.
+     * @param {Item} item
+     * @returns {boolean}
+     */
+    const isWieldable = (item) => {
+        if (item.system.handling === undefined) return false;
+        if (item.system.requireHandling === undefined) return true;
+        return !!item.system.requireHandling;
+    };
+
+    /**
+     * Describe an item's uses/ammo pool as an info badge, mirroring how the item sheets read it:
+     *  - reloadable magazine -> "value/max", since the cap is a target the player reloads back up to;
+     *  - initial uses (restoreOnly) -> just the remaining count, as the cap can't be refilled in play;
+     *  - uncapped uses (a bare `value`, no `max`) -> just the remaining count.
+     * @param {Item} item
+     * @returns {{text: string, title: string}|null} Null when the item tracks no uses at all.
+     */
+    const capacityBadge = (item) => {
+        if (!item.tracksCapacity) return null;
+        const { value, max, restoreOnly } = item.system.capacity;
+        // "Ammo" is a ranged-weapon term; everything else spends generic uses (matching the sheet headers).
+        const isAmmo = item.type === 'weapon' && item.system.weaponType === 'ranged';
+        return {
+            text: hasMagazine(item) ? `${value ?? 0}/${max}` : `${value ?? 0}`,
+            title: restoreOnly ? 'Uses remaining' : (isAmmo ? 'Ammo' : 'Uses')
+        };
+    };
+
+    /**
+     * The unit's saving throws, in sheet order. Labels are the module's own (English, like every other
+     * label here) rather than the system's localised ones.
+     */
+    const SAVES = [
+        ['grit', 'Grit'],
+        ['awareness', 'Awareness'],
+        ['morale', 'Morale']
+    ];
+
+    /**
+     * Read out one saving throw. A save is a `{ value, invulnerable }` pair: either a target number, or
+     * the marker carried by units that simply cannot fail it — those keep their stored number, but it is
+     * neither shown nor rolled against, so "INV" stands in for it exactly as on the sheet's save boxes.
+     * @param {{value: number, invulnerable: boolean}} save
+     * @returns {{text: string, tooltip: string|null}}
+     */
+    const formatSave = (save) => (save?.invulnerable
+        ? { text: 'INV', tooltip: 'Invulnerable — this unit cannot fail this save, so it has no target number.' }
+        : { text: `${save?.value ?? 0}`, tooltip: null });
+
     /* ACTIONS */
 
     const ActionHandler = class ActionHandler extends coreModule.api.ActionHandler {
@@ -107,34 +170,21 @@ Hooks.once('tokenActionHudCoreApiReady', async (coreModule) => {
                     name: 'Defense: ' + actor.system.defense.total,
                     encodedValue: ['', ''].join(DELIMITER)
                 },
-                {
-                    id: 'save_grit',
-                    name: 'Grit: ' + actor.system.saves.grit,
-                    encodedValue: ['', ''].join(DELIMITER)
-                },
-                {
-                    id: 'save_awareness',
-                    name: 'Awareness: ' + actor.system.saves.awareness,
-                    encodedValue: ['', ''].join(DELIMITER)
-                },
-                {
-                    id: 'save_morale',
-                    name: 'Morale: ' + actor.system.saves.morale,
-                    encodedValue: ['', ''].join(DELIMITER)
-                }
+                ...SAVES.map(([key, label]) => {
+                    const { text, tooltip } = formatSave(actor.system.saves[key]);
+                    return {
+                        id: `save_${key}`,
+                        name: `${label}: ${text}`,
+                        encodedValue: ['', ''].join(DELIMITER),
+                        ...(tooltip && { tooltip })
+                    };
+                })
             ];
 
-            const armorActions = actor.items
-                .filter(item => item.type === 'armor')
-                .map(item => ({
-                    id: item.id,
-                    name: item.name,
-                    encodedValue: ['display', item.id].join(DELIMITER),
-                    img: getImage(item)
-                }));
-
             this.addActions(defenseActions, { id: 'defenseStats', type: 'system' });
-            this.addActions(armorActions, { id: 'defenseItems', type: 'system' });
+            // Armor gets a row apiece rather than a flat list, so a piece that requires handling can carry its
+            // Wield toggle on its own line. Clicking the armor itself posts its card.
+            this._buildItemRows(actor, 'armor', 'defenseItems', 'display');
         }
 
         _buildAttacks (actor) {
@@ -152,15 +202,20 @@ Hooks.once('tokenActionHudCoreApiReady', async (coreModule) => {
         /**
          * Give each item its own subgroup (row) under `parentId`, holding its use/reload/wield buttons.
          * A subgroup is a separate flex container, so the extra buttons never wrap into the next item.
+         * @param {Actor} actor
+         * @param {string} itemType
+         * @param {string} parentId
+         * @param {string} [useType] - Encoded action type for the item's own button; armor has nothing to
+         *   activate, so it displays its card instead.
          */
-        _buildItemRows (actor, itemType, parentId) {
+        _buildItemRows (actor, itemType, parentId, useType = 'use') {
             for (const item of actor.items.filter(i => i.type === itemType)) {
                 const rowId = `${item.id}-row`;
                 this.addGroup(
                     { id: rowId, type: 'system', settings: { showTitle: false } },
                     { id: parentId, type: 'system' }
                 );
-                this.addActions(this._itemActions(item), { id: rowId, type: 'system' });
+                this.addActions(this._itemActions(item, useType), { id: rowId, type: 'system' });
             }
         }
 
@@ -248,9 +303,10 @@ Hooks.once('tokenActionHudCoreApiReady', async (coreModule) => {
         }
 
         /**
-         * Build the row of buttons for a weapon/equipment/ability: the item itself (attack/use), an inline
-         * Reload button when it has spent capacity, and a Wield/Unwield toggle for its readied state. Reload
-         * and wield sit next to the item rather than in a separate section.
+         * Build the row of buttons for a weapon/equipment/ability/armor: the item itself (attack, use or
+         * display), an inline Reload button when it has a magazine, and a Wield/Unwield toggle for its
+         * handling state. Reload and wield sit next to the item rather than in a separate section. Each
+         * button is opt-in, so an item with nothing to reload or wield is just its own name button.
          * @param {Item} item
          * @param {string} useType - The encoded action type for the item's primary button (roll-handler key).
          * @returns {object[]}
@@ -258,10 +314,10 @@ Hooks.once('tokenActionHudCoreApiReady', async (coreModule) => {
         _itemActions (item, useType = 'use') {
             const actions = [this._itemAction(item, useType)];
 
-            // Show a Reload button whenever the item has a reloadable magazine, so it doesn't pop in/out as
-            // ammo is spent. It's greyed (disabled) while the item is full and can't currently reload.
-            // Restore-only ("initial uses") items are never reloadable, so they get no button at all.
-            if (item.system.capacity?.max > 0 && !item.system.capacity.restoreOnly) {
+            // Show a Reload button whenever the item has a magazine, so it doesn't pop in/out as ammo is
+            // spent. It's greyed (disabled) while the item is full and can't currently reload. Items on
+            // "initial uses", and those with uncapped uses, are never reloadable and get no button at all.
+            if (hasMagazine(item)) {
                 actions.push({
                     id: `${item.id}-reload`,
                     name: 'Reload',
@@ -271,14 +327,15 @@ Hooks.once('tokenActionHudCoreApiReady', async (coreModule) => {
                 });
             }
 
-            // weapon/equipment/ability carry a `ready` field; skills do not. Icon-only toggle, lit when wielded.
-            if (item.system.ready !== undefined) {
+            // Icon-only toggle, lit while the item is being handled. Kept labelled "Wield" at the table even
+            // though the underlying state is `handling` (see {@link isWieldable}).
+            if (isWieldable(item)) {
                 actions.push({
                     id: `${item.id}-wield`,
                     name: 'Wield',
                     encodedValue: ['wield', item.id].join(DELIMITER),
                     icon1: '<i class="fa-solid fa-hand-fist"></i>',
-                    cssClass: item.system.ready ? 'active toggle' : 'toggle'
+                    cssClass: item.system.handling ? 'active toggle' : 'toggle'
                 });
             }
 
@@ -286,8 +343,8 @@ Hooks.once('tokenActionHudCoreApiReady', async (coreModule) => {
         }
 
         /**
-         * Build an "activate" action for a weapon/equipment/ability. Reads out remaining ammo when the
-         * item has a capacity pool.
+         * Build an "activate" action for a weapon/equipment/ability. Reads out remaining uses/ammo when the
+         * item tracks a capacity pool (see {@link capacityBadge}).
          * @param {Item} item
          * @param {string} type - The encoded action type (roll-handler switch key).
          * @returns {object}
@@ -299,14 +356,8 @@ Hooks.once('tokenActionHudCoreApiReady', async (coreModule) => {
                 encodedValue: [type, item.id].join(DELIMITER),
                 img: getImage(item)
             };
-            const capacity = item.system.capacity;
-            if (capacity?.max > 0) {
-                // A restore-only item's `max` is a starting charge that can't be topped up in play, so only
-                // the remaining uses are meaningful — showing "value/max" would imply a reloadable magazine.
-                action.info1 = capacity.restoreOnly
-                    ? { text: `${capacity.value}`, title: 'Uses' }
-                    : { text: `${capacity.value}/${capacity.max}`, title: 'Ammo' };
-            }
+            const badge = capacityBadge(item);
+            if (badge) action.info1 = badge;
             return action;
         }
     };
@@ -338,9 +389,9 @@ Hooks.once('tokenActionHudCoreApiReady', async (coreModule) => {
                     break;
                 }
                 case 'wield': {
-                    // Toggle the item's readied (wielded) state.
+                    // Toggle the item's handling (wielded) state.
                     const item = actor.items.get(actionId);
-                    if (item) await item.update({ 'system.ready': !item.system.ready });
+                    if (item) await item.update({ 'system.handling': !item.system.handling });
                     break;
                 }
                 case 'showDefense':
