@@ -134,13 +134,13 @@ Hooks.once('tokenActionHudCoreApiReady', async (coreModule) => {
         }
 
         /**
-         * Secondary resource pools (Shield / Heat), shown only when the unit uses them. Health and Power
+         * Secondary resource pools (Vigor / Heat), shown only when the unit uses them. Health and Power
          * live on the Stats tab as badges (see _buildVitals) so they aren't duplicated here.
          */
         _buildResources (actor) {
             const system = actor.system;
             const pools = [
-                { id: 'shield', name: 'Shield', pool: system.shield },
+                { id: 'vigor', name: 'Vigor', pool: system.vigor },
                 { id: 'heat', name: 'Heat', pool: system.heat }
             ];
             const actions = pools

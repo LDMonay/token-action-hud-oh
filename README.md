@@ -9,7 +9,7 @@ Built on [Token Action HUD Core](https://github.com/Larkinabout/fvtt-token-actio
 - **Attacks** — roll a weapon's attack directly (`item.use()`), with remaining ammo shown inline.
 - **Reload** — one-click reload for weapons, equipment, and abilities that have spent capacity.
 - **Defenses** — post a defense card, and read Profile, Defense, and the Grit / Awareness / Morale saves at a glance; equipped armor is listed for quick reference.
-- **Resources** — Health, Shield, Heat, and Power pools (shown only when the unit uses them).
+- **Resources** — Health, Vigor, Heat, and Power pools (shown only when the unit uses them).
 - **Combat stats** — Actions, Minor Actions, Aim, Speed, Melee, and Points.
 - **Equipment, Abilities, Skills** — activate items or post their cards.
 - **Stances** — select the unit's active stance (or clear it) from the HUD.
